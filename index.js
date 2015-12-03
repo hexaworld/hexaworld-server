@@ -16,27 +16,26 @@ function startNextGame() {
 		
 		var game = hexaworld('game', game, { width: 600, height: 600 })
     game.pause()
-    // register game-related callbacks here
-    game.events.on('*', function (event) {
-      console.log('game event: ' + event)
-    })
 		game.events.on('finished', function () {
 			startNextGame()
 		})
+    setupLogging(game)
     game.resume()
 	})
 }
 
-function setupLogging() {
+function setupLogging(game) {
   var socket = io.connect(logsUrl)
-  /*
-  server.on('message', function (data, flags) {
+  socket.on('message', function (data, flags) {
     console.log('received message: ' + data)
   })
-  */
+  // register game-related callbacks here
+  game.events.onAny(function (event) {
+    console.log('emitting game event: ' + JSON.stringify(event))
+    socket.emit('event', event)
+  })
 }
 
-setupLogging()
 startNextGame()
 
 

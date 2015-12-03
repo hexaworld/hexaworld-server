@@ -115,7 +115,7 @@ function run(port) {
     // TODO parse the session
     console.log('socket.io connected!')
     socket.on('event', function (event) {
-      console.log('type: ' + event.type + ' - ' + event.msg)
+      console.log('received: ' + JSON.stringify(event))
     })
   })
 
