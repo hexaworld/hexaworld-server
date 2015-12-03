@@ -6,51 +6,93 @@ var async = require('async')
 var express = require('express') 
 var session = require('express-session')
 var server = require('http').createServer()
-var WebSocketServer = require('ws').Server
+var socket = require('socket.io') 
 
 // TODO move to config file
 var appPort = 3000
 var wsPort = 3001
 
+// TODO change to an production-ready store
+var sessions = new session.MemoryStore()
+
 var worldDir = path.join(__dirname, 'worlds')
-var worlds = _.zipObject(_.map(fs.readdirSync(worldDir), function (file) {
-	var contents = JSON.parse(fs.readFileSync(path.join(worldDir, file)))
-	return [file, contents]
-}))
+var worlds = {}
 
-function getWorlds(req, res) {
-  res.json(worlds)
-}
-
-function getSessions(req, res) {
-
-}
-
-function startGame(req, res) {
-  var session = req.session
-  console.log('session: ' + JSON.stringify(session))
-  // just return the first world for now
-  if (!session.games) {
-    session.games = []
-  }
-  // TODO get the next game based on the session here
-  var world = _.sample(_.keys(worlds)) 
-  if (!world) {
-    res.status(500).end()
-  }
-  session.games.push({
-    id: world,
-    time: (new Date()).toISOString()
+function _loadWorlds (cb) {
+  fs.readdir(worldDir, function (err, files) {
+    if (err) return cb(err)
+    var diff = _.difference(files, _.keys(worlds))
+    if (diff.length === 0) {
+      return cb(null, worlds)
+    } 
+    async.map(diff, function (file, next) {
+      var contents = fs.readFile(path.join(worldDir, file), function (err, data) {
+        if (err) return next(err)
+        return next(null, [file, JSON.parse(data)])
+      })
+    }, function (err, results) {
+      if (err) return cb(err)
+      worlds = _.merge(worlds, _.zipObject(results))
+      return cb(null, worlds) 
+    })
   })
-  res.json(worlds[world])
 }
 
-function run() {
-	var wss = new WebSocketServer({ server: server })
+function getWorlds (req, res) {
+  console.log('loading worlds...')
+  _loadWorlds(function (err, loaded) { 
+    if (err) {
+      res.status(500).end()
+    } else {
+      console.log('loaded: ' + JSON.stringify(loaded))
+      res.json(loaded)
+    }
+  })
+}
+
+function getSessions (req, res) {
+
+}
+
+function startGame (req, res) {
+  _loadWorlds(function (err, worlds) { 
+    if (err) {
+      res.status(500).send(err)
+    } else { 
+      var session = req.session
+      console.log('session: ' + JSON.stringify(session))
+      // just return the first world for now
+      if (!session.games) {
+        session.games = []
+      }
+      // TODO get the next game based on the session here
+      var world = _.sample(_.keys(worlds)) 
+      if (!world) {
+        res.status(500).send()
+      }
+      session.games.push({
+        id: world,
+        time: (new Date()).toISOString()
+      })
+      var schema = worlds[world]
+      var response = {
+        name: world,
+        schema: worlds[world],
+      }
+      console.log('response: ' + JSON.stringify(response))
+      res.json(response)
+    }
+  })
+}
+
+function run(port) {
 	var app = express()
+  var server = require('http').createServer(app)
+  var io = socket(server)
 
 	// session management
 	app.use(session({
+    store: sessions,
     secret: 'MAKESECURE'
   }))
 
@@ -64,26 +106,21 @@ function run() {
 		res.send({ msg: "hello" });
 	});
 
-	wss.on('connection', function connection(ws) {
-		// var location = url.parse(ws.upgradeReq.url, true);
-		// you might use location.query.access_token to authenticate or share sessions
-		// or ws.upgradeReq.headers.cookie (see http://stackoverflow.com/a/16395220/151312)
-
-		ws.on('message', function incoming(message) {
-			console.log('received: %s', message);
-		});
-
-		ws.send('something');
-	});
-
-	server.on('request', app);
-
 	// Static file handling
 	app.use(express.static(__dirname))
 
-	app.listen(appPort)
-	server.listen(wsPort, function () { console.log('Listening on ' + server.address().port) });
+  // Log management
+  // TODO move this into hexaworld-logs
+  io.on('connection', function (socket) {
+    // TODO parse the session
+    console.log('socket.io connected!')
+    socket.on('event', function (event) {
+      console.log('type: ' + event.type + ' - ' + event.msg)
+    })
+  })
+
+  server.listen(port)
 }
 
-run()
+run(appPort)
 

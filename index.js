@@ -1,27 +1,34 @@
-var http = require('http')
+var request = require('browser-request')
 var urljoin = require('url-join')
 var hexaworld = require('hexaworld/game.js')
-var WebSocket = require('ws')
+
 
 // TODO add these using a template 
-var serverUrl = 'localhost:3001'
-var logsUrl = 'localhost:3002'
+var serverUrl = 'http://localhost:3000'
+var logsUrl = 'http://localhost:3000'
+
 
 function startNextGame() { 
-	http.get({ path: '/game', json: true }, function (res) {
-		console.log('got game: ' + JSON.stringify(res))
+	request({ url: '/game', json: true }, function (rsp, res, body) {
+    var name = body.name
+    var game = body.schema
+		console.log('got game: ' + JSON.stringify(game))
 		
-		var game = hexaworld('game', { schema: res })
+		var game = hexaworld('game', game, { width: 600, height: 600 })
+    game.pause()
     // register game-related callbacks here
-		game.on('finished', function () {
+    game.events.on('*', function (event) {
+      console.log('game event: ' + event)
+    })
+		game.events.on('finished', function () {
 			startNextGame()
 		})
-		game.start()
+    game.resume()
 	})
 }
 
 function setupLogging() {
-  var server = new WebSocket(urljoin('ws://' + logsUrl))
+  var socket = io.connect(logsUrl)
   /*
   server.on('message', function (data, flags) {
     console.log('received message: ' + data)
@@ -29,6 +36,7 @@ function setupLogging() {
   */
 }
 
+setupLogging()
 startNextGame()
 
 
