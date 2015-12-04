@@ -1,19 +1,26 @@
 var fs = require('fs')
 var path = require('path')
 
+// general server requirements
 var _ = require('lodash')
 var async = require('async')
 var express = require('express') 
 var session = require('express-session')
 var server = require('http').createServer()
+var shortid = require('shortid')
+
+// log management requirements
+var sharedsession = require('express-socket.io-session')
 var socket = require('socket.io') 
 
 // TODO move to config file
 var appPort = 3000
 var wsPort = 3001
 
+// State goes here
 // TODO change to an production-ready store
 var sessions = new session.MemoryStore()
+var games = {}
 
 var worldDir = path.join(__dirname, 'worlds')
 var worlds = {}
@@ -38,7 +45,7 @@ function _loadWorlds (cb) {
   })
 }
 
-function getWorlds (req, res) {
+function handleWorlds (req, res) {
   console.log('loading worlds...')
   _loadWorlds(function (err, loaded) { 
     if (err) {
@@ -50,11 +57,33 @@ function getWorlds (req, res) {
   })
 }
 
-function getSessions (req, res) {
-
+function handleSessions (req, res) {
+	var id = req.params.id
+	if (sessions) { 
+	  if (id) {
+			res.json(sessions.sessions[id])
+		} else {	
+			res.json(sessions.sessions)
+    }	
+	} else {
+		res.status(500).end()
+  }
 }
 
-function startGame (req, res) {
+function handleGames (req, res) {
+	var id = req.params.id
+	if (games) { 
+	  if (id) {
+			res.json(games[id])
+		} else {	
+			res.json(games)
+    }	
+	} else {
+		res.status(500).end()
+  }
+}
+
+function startNewGame (req, res) {
   _loadWorlds(function (err, worlds) { 
     if (err) {
       res.status(500).send(err)
@@ -70,16 +99,16 @@ function startGame (req, res) {
       if (!world) {
         res.status(500).send()
       }
-      session.games.push({
-        id: world,
-        time: (new Date()).toISOString()
-      })
-      var schema = worlds[world]
-      var response = {
+			var id = shortid.generate()
+			var state = {
+				id: id,
         name: world,
-        schema: worlds[world],
+        time: (new Date()).toISOString()
       }
-      console.log('response: ' + JSON.stringify(response))
+			games[id] = state
+      session.games.push(state)
+      var schema = worlds[world]
+      var response = _.merge({}, state, { schema: worlds[world] })
       res.json(response)
     }
   })
@@ -91,15 +120,21 @@ function run(port) {
   var io = socket(server)
 
 	// session management
-	app.use(session({
+	var appSession = session({
     store: sessions,
     secret: 'MAKESECURE'
-  }))
+  })
+	app.use(appSession)
 
 	// AJAX handling
-	app.get('/game', startGame)
-  app.get('/worlds', getWorlds)
-  app.get('/sessions', getSessions)
+	app.route('/games')
+		.post(startNewGame)
+		.get(handleGames)
+	app.get('/games', handleGames)
+	app.get('/games/:id', handleGames)
+  app.get('/sessions', handleSessions)
+	app.get('/sessions/:id', handleSessions)
+  app.get('/worlds', handleWorlds)
 
 	// WebSocket handling
 	app.use('/data',function (req, res) {
@@ -111,10 +146,25 @@ function run(port) {
 
   // Log management
   // TODO move this into hexaworld-logs
+  
+  io.use(sharedsession(appSession, {
+    autoSave: true
+  }))
   io.on('connection', function (socket) {
-    // TODO parse the session
     console.log('socket.io connected!')
+    // Accept a login event with user's data
+    socket.on("login", function(userdata) {
+			console.log('in login, userdata: ' + userdata)
+			socket.handshake.session.userdata = userdata
+    });
+    socket.on("logout", function(userdata) {
+			console.log('in logout, userdata: ' + userdata)
+			if (socket.handshake.session.userdata) {
+					delete socket.handshake.session.userdata
+			}
+    }); 
     socket.on('event', function (event) {
+			var session = JSON.stringify(_.keys(socket.handshake.session))
       console.log('received: ' + JSON.stringify(event))
     })
   })
