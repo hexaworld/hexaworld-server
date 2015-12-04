@@ -37,8 +37,8 @@ function setupLogging(id, game) {
   })
   // register game-related callbacks here
   game.events.onAny(function (event) {
-    console.log('emitting game event: ' + JSON.stringify(event))
-    socket.emit('event', { id: id, event: event})
+    console.log('emitting game event: ' + this.event + ': ' + JSON.stringify(event))
+    socket.emit('event', { id: this.event, event: event})
   })
 }
 
