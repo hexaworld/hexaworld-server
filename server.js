@@ -20,7 +20,9 @@ var wsPort = 3001
 // State goes here
 // TODO change to an production-ready store
 var sessions = new session.MemoryStore()
+// TODO make these actual databases, or extract into different modules
 var games = {}
+var logs = {}
 
 var worldDir = path.join(__dirname, 'worlds')
 var worlds = {}
@@ -83,6 +85,19 @@ function handleGames (req, res) {
   }
 }
 
+function handleLogs (req, res) {
+	var id = req.params.id
+	if (logs) { 
+	  if (id) {
+			res.json(logs[id])
+		} else {	
+			res.json(logs)
+    }	
+	} else {
+		res.status(500).end()
+  }
+}
+
 function startNewGame (req, res) {
   _loadWorlds(function (err, worlds) { 
     if (err) {
@@ -134,6 +149,8 @@ function run(port) {
 	app.get('/games/:id', handleGames)
   app.get('/sessions', handleSessions)
 	app.get('/sessions/:id', handleSessions)
+	app.get('/logs', handleLogs)
+	app.get('/logs/:id', handleLogs)
   app.get('/worlds', handleWorlds)
 
 	// WebSocket handling
@@ -165,7 +182,13 @@ function run(port) {
     }); 
     socket.on('event', function (event) {
 			var session = JSON.stringify(_.keys(socket.handshake.session))
+			var id = event.id
       console.log('received: ' + JSON.stringify(event))
+			if (!logs[id]) { 
+				logs[id] = [event.event]
+			} else {
+				logs[id].push(event.event)
+			}
     })
   })
 
