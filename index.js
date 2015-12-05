@@ -1,49 +1,42 @@
 var request = require('browser-request')
-var urljoin = require('url-join')
 var hexaworld = require('hexaworld/game.js')
 
-
-// TODO add these using a template 
-var serverUrl = 'http://localhost:3000'
+// TODO add these using a template
 var logsUrl = 'http://localhost:3000'
 
-
-function startNextGame() { 
-	request({ url: '/games', json: true, method: 'POST' }, function (rsp, res, body) {
+function startNextGame () {
+  request({ url: '/games', json: true, method: 'POST' }, function (rsp, res, body) {
     var name = body.name
     var schema = body.schema
-		var id = body.id
-		
-		console.log('creating game ' + id + ' out of ' + name)
-		
-		var game = hexaworld('game', schema, { 
-			width: 600, 
+    var id = body.id
+
+    console.log('creating game ' + id + ' out of ' + name)
+
+    var game = hexaworld('game', schema, {
+      width: 600,
       height: 600,
-			eventWait: 250
+      eventWait: 250
     })
     game.pause()
-		game.events.on('finished', function () {
-			startNextGame()
-		})
+    game.on('finished', function () {
+      startNextGame()
+    })
     setupLogging(id, game)
     game.resume()
-	})
+  })
 }
 
-function setupLogging(id, game) {
+function setupLogging (id, game) {
   var socket = io.connect(logsUrl)
   socket.on('message', function (data, flags) {
     console.log('received message: ' + data)
   })
   // register game-related callbacks here
-  game.events.onAny(function (event) {
-		var event = { tag: this.event, event: event }
+  game.on('player.*', function (event) {
+    event = { tag: this.event, event: event }
     console.log('emitting game event: ' + JSON.stringify(event))
-    socket.emit('event', { id: id, event: event})
+    socket.emit('event', { id: id, event: event })
   })
 }
 
 startNextGame()
-
-
-
