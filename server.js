@@ -5,9 +5,14 @@ var path = require('path')
 var _ = require('lodash')
 var async = require('async')
 var express = require('express')
-var session = require('express-session')
 var server = require('http').createServer()
 var shortid = require('shortid')
+var JSONStream = require('JSONStream')
+
+// state requirements
+var session = require('express-session')
+var MongoStore = require('connect-mongo')(session)
+var mongoose = require('mongoose')
 
 // log management requirements
 var sharedsession = require('express-socket.io-session')
@@ -15,14 +20,24 @@ var socket = require('socket.io')
 
 // TODO move to config file
 var appPort = 3000
-var wsPort = 3001
 
 // State goes here
-// TODO change to an production-ready store
-var sessions = new session.MemoryStore()
-// TODO make these actual databases, or extract into different modules
-var games = {}
-var logs = {}
+var dbUrl = 'mongodb://localhost/hexaworld'
+mongoose.connect(dbUrl)
+var sessions = new MongoStore({ mongooseConnection: mongoose.connection })
+var gameSchema = new mongoose.Schema({
+  id: String,
+  world: String,
+  date: { type: Date, default: Date.now }
+})
+var eventSchema = new mongoose.Schema({
+  game: String,
+  date: { type: Date, deault: Date.now },
+  tag: String,
+  value: mongoose.Schema.Types.Mixed
+})
+var Game = mongoose.model('Game', gameSchema)
+var Event = mongoose.model('Event', eventSchema)
 
 var worldDir = path.join(__dirname, 'worlds')
 var worlds = {}
@@ -35,7 +50,7 @@ function _loadWorlds (cb) {
       return cb(null, worlds)
     }
     async.map(diff, function (file, next) {
-      var contents = fs.readFile(path.join(worldDir, file), function (err, data) {
+      fs.readFile(path.join(worldDir, file), function (err, data) {
         if (err) return next(err)
         return next(null, [file, JSON.parse(data)])
       })
@@ -59,42 +74,15 @@ function handleWorlds (req, res) {
   })
 }
 
-function handleSessions (req, res) {
-  var id = req.params.id
-  if (sessions) {
-    if (id) {
-      res.json(sessions.sessions[id])
+function _queryCollection (coll) {
+  return function (req, res) {
+    if (coll) {
+      var id = req.params.id
+      var query = { id: id } ? id : {}
+      coll.find(query).stream().pipe(JSONStream.stringify()).pipe(res)
     } else {
-      res.json(sessions.sessions)
+      return res.status(404).send('Queryable collection does not exist at this endpoint')
     }
-  } else {
-    res.status(500).end()
-  }
-}
-
-function handleGames (req, res) {
-  var id = req.params.id
-  if (games) {
-    if (id) {
-      res.json(games[id])
-    } else {
-      res.json(games)
-    }
-  } else {
-    res.status(500).end()
-  }
-}
-
-function handleLogs (req, res) {
-  var id = req.params.id
-  if (logs) {
-    if (id) {
-      res.json(logs[id])
-    } else {
-      res.json(logs)
-    }
-  } else {
-    res.status(500).end()
   }
 }
 
@@ -104,7 +92,6 @@ function startNewGame (req, res) {
       res.status(500).send(err)
     } else {
       var session = req.session
-      console.log('session: ' + JSON.stringify(session))
       // just return the first world for now
       if (!session.games) {
         session.games = []
@@ -115,16 +102,19 @@ function startNewGame (req, res) {
         res.status(500).send()
       }
       var id = shortid.generate()
-      var state = {
+      var description = {
         id: id,
-        name: world,
-        time: (new Date()).toISOString()
+        world: world
       }
-      games[id] = state
-      session.games.push(state)
-      var schema = worlds[world]
-      var response = _.merge({}, state, { schema: worlds[world]})
-      res.json(response)
+      var game = new Game(description)
+      game.save(function (err) {
+        if (err) {
+          return res.session(500).send(err)
+        }
+        session.games.push({id: id})
+        var response = _.merge(description, { schema: worlds[world] })
+        res.json(response)
+      })
     }
   })
 }
@@ -142,15 +132,18 @@ function run (port) {
   app.use(appSession)
 
   // AJAX handling
+  var handleSessions = _queryCollection(sessions.collection)
+  var handleGames = _queryCollection(Game)
+  var handleEvents = _queryCollection(Event)
+
   app.route('/games')
     .post(startNewGame)
     .get(handleGames)
-  app.get('/games', handleGames)
   app.get('/games/:id', handleGames)
   app.get('/sessions', handleSessions)
   app.get('/sessions/:id', handleSessions)
-  app.get('/logs', handleLogs)
-  app.get('/logs/:id', handleLogs)
+  app.get('/events', handleEvents)
+  app.get('/events/:id', handleEvents)
   app.get('/worlds', handleWorlds)
 
   // WebSocket handling
@@ -171,28 +164,31 @@ function run (port) {
     console.log('socket.io connected!')
     // Accept a login event with user's data
     socket.on('login', function (userdata) {
-      console.log('in login, userdata: ' + userdata)
       socket.handshake.session.userdata = userdata
     })
     socket.on('logout', function (userdata) {
-      console.log('in logout, userdata: ' + userdata)
       if (socket.handshake.session.userdata) {
         delete socket.handshake.session.userdata
       }
     })
     socket.on('event', function (event) {
-      var session = JSON.stringify(_.keys(socket.handshake.session))
-      var id = event.id
       console.log('received: ' + JSON.stringify(event))
-      if (!logs[id]) {
-        logs[id] = [event.event]
-      } else {
-        logs[id].push(event.event)
-      }
+      var timestamp = event.event.time
+      var toLog = new Event({
+        game: event.id,
+        tag: event.tag,
+        date: new Date(timestamp),
+        value: _.omit(event.event, 'time')
+      })
+      toLog.save(function (err) {
+        if (err) throw err
+      })
     })
   })
 
   server.listen(port)
 }
 
-run(appPort)
+sessions.on('connected', function () {
+  run(appPort)
+})

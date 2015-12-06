@@ -6,7 +6,7 @@ var logsUrl = 'http://localhost:3000'
 
 function startNextGame () {
   request({ url: '/games', json: true, method: 'POST' }, function (rsp, res, body) {
-    var name = body.name
+    var name = body.world
     var schema = body.schema
     var id = body.id
 
@@ -18,7 +18,7 @@ function startNextGame () {
       eventWait: 250
     })
     game.pause()
-    game.on('finished', function () {
+    game.events.on(['game', 'end'], function () {
       startNextGame()
     })
     setupLogging(id, game)
@@ -32,10 +32,10 @@ function setupLogging (id, game) {
     console.log('received message: ' + data)
   })
   // register game-related callbacks here
-  game.on('player.*', function (event) {
-    event = { tag: this.event, event: event }
+  game.events.onAny(function (event) {
+    event = { id: id, tag: this.event, event: event }
     console.log('emitting game event: ' + JSON.stringify(event))
-    socket.emit('event', { id: id, event: event })
+    socket.emit('event', event)
   })
 }
 
