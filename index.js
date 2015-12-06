@@ -1,8 +1,10 @@
+var _ = require('lodash')
 var request = require('browser-request')
 var hexaworld = require('hexaworld/game.js')
 
 // TODO add these using a template
 var logsUrl = 'http://localhost:3000'
+var emitPeriod = 500 // ms
 
 function startNextGame () {
   request({ url: '/games', json: true, method: 'POST' }, function (rsp, res, body) {
@@ -12,11 +14,7 @@ function startNextGame () {
 
     console.log('creating game ' + id + ' out of ' + name)
 
-    var game = hexaworld('game', schema, {
-      width: 600,
-      height: 600,
-      eventWait: 250
-    })
+    var game = hexaworld('game-container', schema)
     game.pause()
     game.events.on(['game', 'end'], function () {
       startNextGame()
@@ -32,10 +30,19 @@ function setupLogging (id, game) {
     console.log('received message: ' + data)
   })
   // register game-related callbacks here
+  var buffer = []
+  var sendBuffer = function () {
+    console.log('in sendBuffer, emitting ' + buffer.length + ' events')
+    _.forEach(buffer, function (event) {
+      socket.emit('event', event)
+    })
+    buffer = []
+    setTimeout(sendBuffer, emitPeriod)
+  }
+  setTimeout(sendBuffer, emitPeriod)
   game.events.onAny(function (event) {
     event = { id: id, tag: this.event, event: event }
-    console.log('emitting game event: ' + JSON.stringify(event))
-    socket.emit('event', event)
+    buffer.push(event)
   })
 }
 
