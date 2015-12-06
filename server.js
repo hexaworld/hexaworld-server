@@ -5,7 +5,6 @@ var path = require('path')
 var _ = require('lodash')
 var async = require('async')
 var express = require('express')
-var server = require('http').createServer()
 var shortid = require('shortid')
 var JSONStream = require('JSONStream')
 
@@ -74,11 +73,13 @@ function handleWorlds (req, res) {
   })
 }
 
-function _queryCollection (coll) {
+function _queryCollection (key, coll) {
   return function (req, res) {
     if (coll) {
       var id = req.params.id
-      var query = { id: id } ? id : {}
+      var query = {}
+      if (id) query[key] = id
+      console.log('query: ' + JSON.stringify(query))
       coll.find(query).stream().pipe(JSONStream.stringify()).pipe(res)
     } else {
       return res.status(404).send('Queryable collection does not exist at this endpoint')
@@ -132,9 +133,9 @@ function run (port) {
   app.use(appSession)
 
   // AJAX handling
-  var handleSessions = _queryCollection(sessions.collection)
-  var handleGames = _queryCollection(Game)
-  var handleEvents = _queryCollection(Event)
+  var handleSessions = _queryCollection('id', sessions.collection)
+  var handleGames = _queryCollection('id', Game)
+  var handleEvents = _queryCollection('game', Event)
 
   app.route('/games')
     .post(startNewGame)
