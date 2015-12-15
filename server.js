@@ -5,6 +5,7 @@ var path = require('path')
 var _ = require('lodash')
 var async = require('async')
 var express = require('express')
+var bodyParser = require('body-parser')
 var shortid = require('shortid')
 var JSONStream = require('JSONStream')
 
@@ -26,12 +27,12 @@ mongoose.connect(dbUrl)
 var sessions = new MongoStore({ mongooseConnection: mongoose.connection })
 var gameSchema = new mongoose.Schema({
   id: String,
-  world: String,
+  name: String,
   date: { type: Date, default: Date.now }
 })
 var eventSchema = new mongoose.Schema({
   game: String,
-  date: { type: Date, deault: Date.now },
+  date: { type: Date, default: Date.now },
   tag: String,
   value: mongoose.Schema.Types.Mixed
 })
@@ -67,7 +68,6 @@ function handleWorlds (req, res) {
     if (err) {
       res.status(500).end()
     } else {
-      console.log('loaded: ' + JSON.stringify(loaded))
       res.json(loaded)
     }
   })
@@ -87,7 +87,9 @@ function _queryCollection (key, coll) {
   }
 }
 
-function startNewGame (req, res) {
+function startGame (req, res) {
+  console.log('req.body: ' + JSON.stringify(req.body))
+  var name = req.body.name
   _loadWorlds(function (err, worlds) {
     if (err) {
       res.status(500).send(err)
@@ -98,22 +100,22 @@ function startNewGame (req, res) {
         session.games = []
       }
       // TODO get the next game based on the session here
-      var world = _.sample(_.keys(worlds))
+      var world = worlds[name]
       if (!world) {
-        res.status(500).send()
+        return res.status(500).send()
       }
       var id = shortid.generate()
       var description = {
         id: id,
-        world: world
+        name: name
       }
       var game = new Game(description)
       game.save(function (err) {
         if (err) {
-          return res.session(500).send(err)
+          return res.status(500).send(err)
         }
         session.games.push({id: id})
-        var response = _.merge(description, { schema: worlds[world] })
+        var response = _.merge(description, { schema: world })
         res.json(response)
       })
     }
@@ -137,8 +139,10 @@ function run (port) {
   var handleGames = _queryCollection('id', Game)
   var handleEvents = _queryCollection('game', Event)
 
+  // JSON body handling
+  app.use(bodyParser.json())
   app.route('/games')
-    .post(startNewGame)
+    .post(startGame)
     .get(handleGames)
   app.get('/games/:id', handleGames)
   app.get('/sessions', handleSessions)
