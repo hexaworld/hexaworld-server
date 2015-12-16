@@ -5,7 +5,6 @@ var path = require('path')
 var _ = require('lodash')
 var async = require('async')
 var express = require('express')
-var bodyParser = require('body-parser')
 var shortid = require('shortid')
 var JSONStream = require('JSONStream')
 
@@ -27,7 +26,7 @@ mongoose.connect(dbUrl)
 var sessions = new MongoStore({ mongooseConnection: mongoose.connection })
 var gameSchema = new mongoose.Schema({
   id: String,
-  name: String,
+  names: [String],
   date: { type: Date, default: Date.now }
 })
 var eventSchema = new mongoose.Schema({
@@ -39,32 +38,32 @@ var eventSchema = new mongoose.Schema({
 var Game = mongoose.model('Game', gameSchema)
 var Event = mongoose.model('Event', eventSchema)
 
-var worldDir = path.join(__dirname, 'worlds')
-var worlds = {}
+var levelDir = path.join(__dirname, 'levels')
+var levels = {}
 
-function _loadWorlds (cb) {
-  fs.readdir(worldDir, function (err, files) {
+function _loadLevels (cb) {
+  fs.readdir(levelDir, function (err, files) {
     if (err) return cb(err)
-    var diff = _.difference(files, _.keys(worlds))
+    var diff = _.difference(files, _.keys(levels))
     if (diff.length === 0) {
-      return cb(null, worlds)
+      return cb(null, levels)
     }
     async.map(diff, function (file, next) {
-      fs.readFile(path.join(worldDir, file), function (err, data) {
+      fs.readFile(path.join(levelDir, file), function (err, data) {
         if (err) return next(err)
         return next(null, [file, JSON.parse(data)])
       })
     }, function (err, results) {
       if (err) return cb(err)
-      worlds = _.merge(worlds, _.zipObject(results))
-      return cb(null, worlds)
+      levels = _.merge(levels, _.zipObject(results))
+      return cb(null, levels)
     })
   })
 }
 
-function handleWorlds (req, res) {
-  console.log('loading worlds...')
-  _loadWorlds(function (err, loaded) {
+function handleLevels (req, res) {
+  console.log('loading levels...')
+  _loadLevels(function (err, loaded) {
     if (err) {
       res.status(500).end()
     } else {
@@ -79,35 +78,33 @@ function _queryCollection (key, coll) {
       var id = req.params.id
       var query = {}
       if (id) query[key] = id
-      console.log('query: ' + JSON.stringify(query))
       coll.find(query).stream().pipe(JSONStream.stringify()).pipe(res)
     } else {
-      return res.status(404).send('Queryable collection does not exist at this endpoint')
+      return res.status(404).send('queryable collection does not exist at this endpoint')
     }
   }
 }
 
 function startGame (req, res) {
-  console.log('req.body: ' + JSON.stringify(req.body))
-  var name = req.body.name
-  _loadWorlds(function (err, worlds) {
+  _loadLevels(function (err, levels) {
     if (err) {
       res.status(500).send(err)
     } else {
       var session = req.session
-      // just return the first world for now
+      // just return the first level for now
       if (!session.games) {
         session.games = []
       }
-      // TODO get the next game based on the session here
-      var world = worlds[name]
-      if (!world) {
-        return res.status(500).send()
+      // TODO get the levels based on difficulties
+      var names = _.keys(levels)
+      var selection = _.values(levels)
+      if (!selection) {
+        return res.status(500).send('could not get level list')
       }
       var id = shortid.generate()
       var description = {
         id: id,
-        name: name
+        names: names
       }
       var game = new Game(description)
       game.save(function (err) {
@@ -115,8 +112,8 @@ function startGame (req, res) {
           return res.status(500).send(err)
         }
         session.games.push({id: id})
-        var response = _.merge(description, { schema: world })
-        res.json(response)
+        description.levels = selection
+        res.json(description)
       })
     }
   })
@@ -139,8 +136,8 @@ function run (port) {
   var handleGames = _queryCollection('id', Game)
   var handleEvents = _queryCollection('game', Event)
 
-  // JSON body handling
-  app.use(bodyParser.json())
+  // JSON body handling (currently unused)
+  // app.use(bodyParser.json())
   app.route('/games')
     .post(startGame)
     .get(handleGames)
@@ -149,7 +146,7 @@ function run (port) {
   app.get('/sessions/:id', handleSessions)
   app.get('/events', handleEvents)
   app.get('/events/:id', handleEvents)
-  app.get('/worlds', handleWorlds)
+  app.get('/levels', handleLevels)
 
   // WebSocket handling
   app.use('/data', function (req, res) {

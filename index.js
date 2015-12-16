@@ -1,41 +1,27 @@
-var _ = require('lodash')
+var async = require('async')
 var request = require('browser-request')
-var hexaworld = require('hexaworld/play.js')
+var hexaworld = require('hexaworld-app/app.js')
 
 // TODO add these using a template
 var logsUrl = 'http://localhost:3000'
 var emitPeriod = 500 // ms
 
-function startGame (name) {
-  var body = (name) ? { name: name } : null
-  console.log('body: ' + JSON.stringify(body))
-  request.post({ url: '/games', json: true, body: body }, function (rsp, res, body) {
-    var name = body.name
-    var schema = body.schema
+function startGame () {
+  request.post({ url: '/games', json: true }, function (rsp, res, body) {
+    var names = body.names
+    var levels = body.levels
     var id = body.id
 
-    console.log('creating game ' + id + ' out of ' + name)
+    console.log('creating game ' + id + ' out of ' + JSON.stringify(names))
 
-    var game = hexaworld('game-container', schema)
-    game.events.on(['stage', 'completed'], function () {
-      console.log('stage completed')
-    })
-    game.events.on(['stage', 'failed'], function () {
-      console.log('stage failed')
-    })
-    game.events.on(['game', 'completed'], function () {
-      console.log('game completed')
-    })
-    game.events.on(['game', 'failed'], function () {
-      console.log('game failed')
-    })
+    var game = hexaworld('container', levels)
+    console.log('container: ' + document.getElementById('container'))
     setupLogging(id, game)
-    game.start()
   })
 }
 
 function listGames (cb) {
-  request.get({ url: '/worlds', json: true }, function (rsp, res, body) {
+  request.get({ url: '/levels', json: true }, function (rsp, res, body) {
     if (res.statusCode === 200) {
       return cb(null, body)
     } else {
@@ -53,8 +39,9 @@ function setupLogging (id, game) {
   var buffer = []
   var sendBuffer = function () {
     console.log('in sendBuffer, emitting ' + buffer.length + ' events')
-    _.forEach(buffer, function (event) {
+    async.each(buffer, function (event, next) {
       socket.emit('event', event)
+      next(null)
     })
     buffer = []
     setTimeout(sendBuffer, emitPeriod)
@@ -66,6 +53,4 @@ function setupLogging (id, game) {
   })
 }
 
-window.startGame = startGame
-window.listGames = listGames
-window._ = require('lodash')
+startGame()
