@@ -3,7 +3,7 @@ var request = require('browser-request')
 var hexaworld = require('hexaworld-app/app.js')
 
 // TODO add these using a template
-var logsUrl = 'http://localhost:3000'
+var logsUrl = 'http://beta.hexa.world:3000'
 var emitPeriod = 500 // ms
 
 function startGame () {

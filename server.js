@@ -21,7 +21,9 @@ var socket = require('socket.io')
 var appPort = 3000
 
 // State goes here
-var dbUrl = 'mongodb://localhost/hexaworld'
+var authString = process.env.MONGO_USER + ':' + process.env.MONGO_PWD
+var dbUrl = 'mongodb://' + authString + '@localhost/hexaworld'
+console.log('dbUrl: ' + dbUrl)
 mongoose.connect(dbUrl)
 var sessions = new MongoStore({ mongooseConnection: mongoose.connection })
 var gameSchema = new mongoose.Schema({
